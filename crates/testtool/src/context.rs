@@ -15,13 +15,21 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellDepBuilder, CellOutput, OutPoint, OutPointVec, Script},
     prelude::*,
 };
-use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
+pub fn get_rng() -> StdRng {
+    let seed = [0; 32]; // Sie können hier jeden beliebigen Samen verwenden
+    let rng = StdRng::from_seed(seed);
+    rng
+}
+
 /// Return a random hash
 pub fn random_hash() -> Byte32 {
-    let mut rng = thread_rng();
+    let mut rng = get_rng();
     let mut buf = [0u8; 32];
     rng.fill(&mut buf);
     buf.pack()
@@ -77,7 +85,7 @@ impl Context {
             // contract has been deployed
             return out_point.to_owned();
         }
-        let mut rng = thread_rng();
+        let mut rng = get_rng();
         let tx_hash = {
             let mut buf = [0u8; 32];
             rng.fill(&mut buf);
