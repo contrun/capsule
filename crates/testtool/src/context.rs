@@ -1,6 +1,7 @@
 use crate::tx_verifier::OutputsDataVerifier;
 use ckb_chain_spec::consensus::{ConsensusBuilder, TYPE_ID_CODE_HASH};
 use ckb_error::Error as CKBError;
+use ckb_hash::blake2b_256;
 use ckb_mock_tx_types::{MockCellDep, MockInfo, MockInput, MockTransaction, ReprMockTransaction};
 use ckb_script::{TransactionScriptsVerifier, TxVerifyEnv};
 use ckb_traits::{CellDataProvider, ExtensionProvider, HeaderProvider};
@@ -21,17 +22,21 @@ use std::sync::{Arc, Mutex};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
+static mut SEED: u64 = 42;
+
 pub fn get_rng() -> StdRng {
-    let seed = [0; 32]; // Sie können hier jeden beliebigen Samen verwenden
-    let rng = StdRng::from_seed(seed);
+    let s = unsafe {
+        SEED += 1;
+        SEED
+    };
+    let rng = StdRng::from_seed(blake2b_256(s.to_le_bytes().as_ref()));
     rng
 }
 
 /// Return a random hash
 pub fn random_hash() -> Byte32 {
-    let mut rng = get_rng();
     let mut buf = [0u8; 32];
-    rng.fill(&mut buf);
+    get_rng().fill(&mut buf);
     buf.pack()
 }
 
@@ -58,7 +63,7 @@ pub struct Message {
 }
 
 /// Verification Context
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct Context {
     pub cells: HashMap<OutPoint, (CellOutput, Bytes)>,
     pub transaction_infos: HashMap<OutPoint, TransactionInfo>,
@@ -187,7 +192,7 @@ impl Context {
     /// Build script with out_point, hash_type, args
     /// return none if the out-point is not exist
     pub fn build_script_with_hash_type(
-        &mut self,
+        &self,
         out_point: &OutPoint,
         hash_type: ScriptHashType,
         args: Bytes,
@@ -213,7 +218,7 @@ impl Context {
     }
     /// Build script with out_point, args and hash_type(ScriptHashType::Type)
     /// return none if the out-point is not exist
-    pub fn build_script(&mut self, out_point: &OutPoint, args: Bytes) -> Option<Script> {
+    pub fn build_script(&self, out_point: &OutPoint, args: Bytes) -> Option<Script> {
         self.build_script_with_hash_type(out_point, ScriptHashType::Type, args)
     }
 
@@ -277,13 +282,25 @@ impl Context {
     }
 
     fn build_resolved_tx(&self, tx: &TransactionView) -> ResolvedTransaction {
+        dbg!("Building ResolvedTransaction: {:?}", &tx);
         let input_cells = tx
             .inputs()
             .into_iter()
             .map(|input| {
+                dbg!("Building ResolvedTransaction input: {:?}", &input);
                 let previous_out_point = input.previous_output();
+
+                let out_point_exists = (&self.cells).get(&previous_out_point).is_some();
+                dbg!(
+                    "Getting previous out point: {:?}",
+                    &previous_out_point,
+                    out_point_exists
+                );
+                // dbg!("Cells: {:?}", &self.cells);
                 let (input_output, input_data) = self.cells.get(&previous_out_point).unwrap();
+                dbg!("Input Output: {:?}", &input_output);
                 let tx_info_opt = self.transaction_infos.get(&previous_out_point);
+                dbg!("Transaction Info: {:?}", &tx_info_opt);
                 let mut b = CellMetaBuilder::from_cell_output(
                     input_output.to_owned(),
                     input_data.to_vec().into(),
@@ -292,7 +309,9 @@ impl Context {
                 if let Some(tx_info) = tx_info_opt {
                     b = b.transaction_info(tx_info.to_owned());
                 }
-                b.build()
+                let result = b.build();
+                dbg!("Cell Meta Builder result: {:?}", &result);
+                result
             })
             .collect();
         let mut resolved_cell_deps = vec![];
@@ -366,6 +385,7 @@ impl Context {
     pub fn verify_tx(&self, tx: &TransactionView, max_cycles: u64) -> Result<Cycle, CKBError> {
         self.verify_tx_consensus(tx)?;
         let resolved_tx = self.build_resolved_tx(tx);
+        dbg!("Resolved Transaction: {:?}", &resolved_tx);
         let consensus = ConsensusBuilder::default()
             .hardfork_switch(HardForks {
                 ckb2021: CKB2021::new_dev_default(),
