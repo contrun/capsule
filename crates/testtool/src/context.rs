@@ -35,19 +35,36 @@ pub fn get_rng() -> StdRng {
 
 /// Return a random hash
 pub fn random_hash() -> Byte32 {
+    random_hash_from_rng(&mut get_rng())
+}
+
+/// Return a random hash
+pub fn random_hash_from_rng<R: Rng>(rng: &mut R) -> Byte32 {
     let mut buf = [0u8; 32];
-    get_rng().fill(&mut buf);
+    rng.fill(&mut buf);
     buf.pack()
 }
 
 /// Return a random OutPoint
 pub fn random_out_point() -> OutPoint {
-    OutPoint::new_builder().tx_hash(random_hash()).build()
+    random_out_point_from_rng(&mut get_rng())
+}
+
+/// Return a random OutPoint
+pub fn random_out_point_from_rng<R: Rng>(rng: &mut R) -> OutPoint {
+    OutPoint::new_builder()
+        .tx_hash(random_hash_from_rng(rng))
+        .build()
 }
 
 /// Return a random Type ID Script
 pub fn random_type_id_script() -> Script {
-    let args = random_hash().as_bytes();
+    random_type_id_script_from_rng(&mut get_rng())
+}
+
+/// Return a random Type ID Script
+pub fn random_type_id_script_from_rng<R: Rng>(rng: &mut R) -> Script {
+    let args = random_hash_from_rng(rng).as_bytes();
     debug_assert_eq!(args.len(), 32);
     Script::new_builder()
         .code_hash(TYPE_ID_CODE_HASH.pack())
@@ -85,19 +102,24 @@ impl Context {
     /// Deploy a cell
     /// return the out-point of the cell
     pub fn deploy_cell(&mut self, data: Bytes) -> OutPoint {
+        self.deploy_cell_with_rng(data, &mut get_rng())
+    }
+
+    /// Deploy a cell with the specified random number generator.
+    /// return the out-point of the cell
+    pub fn deploy_cell_with_rng<R: Rng>(&mut self, data: Bytes, rng: &mut R) -> OutPoint {
         let data_hash = CellOutput::calc_data_hash(&data);
         if let Some(out_point) = self.cells_by_data_hash.get(&data_hash) {
             // contract has been deployed
             return out_point.to_owned();
         }
-        let mut rng = get_rng();
         let tx_hash = {
             let mut buf = [0u8; 32];
             rng.fill(&mut buf);
             buf.pack()
         };
         let out_point = OutPoint::new(tx_hash, 0);
-        let type_id_script = random_type_id_script();
+        let type_id_script = random_type_id_script_from_rng(rng);
         let type_id_hash = type_id_script.calc_script_hash();
         let cell = {
             let cell = CellOutput::new_builder()
@@ -155,11 +177,21 @@ impl Context {
     /// Create a cell with data
     /// return the out-point
     pub fn create_cell(&mut self, cell: CellOutput, data: Bytes) -> OutPoint {
-        let out_point = random_out_point();
+        self.create_cell_with_rng(cell, data, &mut get_rng())
+    }
+
+    /// Create a cell with data
+    /// return the out-point
+    pub fn create_cell_with_rng<R: Rng>(
+        &mut self,
+        cell: CellOutput,
+        data: Bytes,
+        rng: &mut R,
+    ) -> OutPoint {
+        let out_point = random_out_point_from_rng(rng);
         self.create_cell_with_out_point(out_point.clone(), cell, data);
         out_point
     }
-
     /// Create cell with specified out-point and cell data
     pub fn create_cell_with_out_point(
         &mut self,
